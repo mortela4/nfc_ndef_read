@@ -74,6 +74,42 @@ extern "C" {
 #define NDEF_MESSAGE_BUF_LEN             8192
 
 
+/*! Device type                                                                         */
+typedef enum{
+    EXAMPLE_RFAL_POLLER_TYPE_NFCA  =  0,                 /* NFC-A device type           */
+    EXAMPLE_RFAL_POLLER_TYPE_NFCB  =  1,                 /* NFC-B device type           */
+    EXAMPLE_RFAL_POLLER_TYPE_NFCF  =  2,                 /* NFC-F device type           */
+    EXAMPLE_RFAL_POLLER_TYPE_NFCV  =  3                  /* NFC-V device type           */
+}exampleRfalPollerDevType;
+
+
+/*! Device interface                                                                    */
+typedef enum{
+    EXAMPLE_RFAL_POLLER_INTERFACE_RF     = 0,            /* RF Frame interface          */
+    EXAMPLE_RFAL_POLLER_INTERFACE_ISODEP = 1,            /* ISO-DEP interface           */
+    EXAMPLE_RFAL_POLLER_INTERFACE_NFCDEP = 2             /* NFC-DEP interface           */
+}exampleRfalPollerRfInterface;
+
+
+/*! Device struct containing all its details                                            */
+typedef struct{
+    exampleRfalPollerDevType type;                      /* Device's type                */
+    union{
+        rfalNfcaListenDevice nfca;                      /* NFC-A Listen Device instance */
+        rfalNfcbListenDevice nfcb;                      /* NFC-B Listen Device instance */
+        rfalNfcfListenDevice nfcf;                      /* NFC-F Listen Device instance */
+        rfalNfcvListenDevice nfcv;                      /* NFC-V Listen Device instance */
+    }dev;                                               /* Device's instance            */
+    
+    exampleRfalPollerRfInterface rfInterface;           /* Device's interface           */
+    union{
+        rfalIsoDepDevice isoDep;                        /* ISO-DEP instance             */
+        rfalNfcDepDevice nfcDep;                        /* NFC-DEP instance             */
+    }proto;                                             /* Device's protocol            */
+    
+}exampleRfalPollerDevice;
+
+
 /************************************ LOCAL VARIABLES *****************************************/
 static rfalNfcDevice *nfcDevice;
 
@@ -237,7 +273,7 @@ static void check_discover_retval(const ndefStatus err)
 void setup(void) 
 {
     ndefStatus err;
-    
+
     Serial0.begin(115200);
     Serial0.println("Init ...");
     
@@ -265,6 +301,22 @@ void setup(void)
 }
 
 
+/*! Main state                                                                          */
+typedef enum
+{
+    RFAL_POLLER_STATE_INIT                =  0,  /* Initialize state            */
+    RFAL_POLLER_STATE_TECHDETECT          =  1,  /* Technology Detection state  */
+    RFAL_POLLER_STATE_COLAVOIDANCE        =  2,  /* Collision Avoidance state   */
+    RFAL_POLLER_STATE_ACTIVATION          =  3,  /* Activation state            */
+    RFAL_POLLER_STATE_DATAEXCHANGE_START  =  4,  /* Data Exchange Start state   */
+    RFAL_POLLER_STATE_DATAEXCHANGE_CHECK  =  5,  /* Data Exchange Check state   */
+    RFAL_POLLER_STATE_DEACTIVATION        =  9   /* Deactivation state          */
+} rfalPollerState_t;
+
+
+static exampleRfalPollerState  gState = RFAL_POLLER_STATE_INIT;
+
+
 void loop(void) 
 {
 	ndefStatus err;
@@ -275,14 +327,83 @@ void loop(void)
 
     rfalNfcWorker();
 
-    //vTaskDelay(500);
+    vTaskDelay(50);
     platformDelay(1000);
     
-    if ( rfalNfcIsDevActivated(rfalNfcGetState()) ) 
-    {
-        Serial0.println("NFC device (tag?) activated ...");
+    vTaskDelay(50);
 
-        /* Retrieve NFC device */
+    switch( gState )
+    {
+        /*******************************************************************************/
+        case RFAL_POLLER_STATE_INIT:                                     
+            
+            gTechsFound = EXAMPLE_RFAL_POLLER_FOUND_NONE; 
+            gActiveDev  = NULL;
+            gDevCnt     = 0;
+            
+            gState = EXAMPLE_RFAL_POLLER_STATE_TECHDETECT;
+            break;
+            
+            
+        /*******************************************************************************/
+        case RFAL_POLLER_STATE_TECHDETECT:
+            
+            if( !exampleRfalPollerTechDetetection() )                             /* Poll for nearby devices in different technologies */
+            {
+                gState = EXAMPLE_RFAL_POLLER_STATE_DEACTIVATION;                  /* If no device was found, restart loop */
+                break;
+            }
+            
+            gState = RFAL_POLLER_STATE_COLAVOIDANCE;                      /* One or more devices found, go to Collision Avoidance */
+            break;
+            
+            
+        /*******************************************************************************/
+        case RFAL_POLLER_STATE_COLAVOIDANCE:
+            
+            if( !exampleRfalPollerCollResolution() )                              /* Resolve any eventual collision */
+            {
+                gState = RFAL_POLLER_STATE_DEACTIVATION;                  /* If Collision Resolution was unable to retrieve any device, restart loop */
+                break;
+            }
+            
+            Serial0.print("Device(s) found: ");
+            Serial0.println( gDevCnt );
+            
+            for(int i = 0; i < gDevCnt; i++)
+            {
+                switch( gDevList[i].type )
+                {
+                    case EXAMPLE_RFAL_POLLER_TYPE_NFCA:
+                        Serial0.print( " NFC-A device UID: "); 
+                        Serial0.println( hex2str(gDevList[i].dev.nfca.nfcId1, gDevList[i].dev.nfca.nfcId1Len) );
+                        //platformLedOn( LED_NFCA_PORT, LED_NFCA_PIN  );
+                        platformLedOn(LED_TAG_READ_PORT, LED_TAG_READ_PIN); 
+                        break;
+                        
+                    case EXAMPLE_RFAL_POLLER_TYPE_NFCB:
+                        Serial0.print( " NFC-B device UID: "); 
+                        Serial0.println( hex2str(gDevList[i].dev.nfcb.sensbRes.nfcid0, RFAL_NFCB_NFCID0_LEN) );
+                        //platformLedOn( LED_NFCB_PORT, LED_NFCB_PIN  );
+                        platformLedOn(LED_TAG_READ_PORT, LED_TAG_READ_PIN); 
+                        break;
+                        
+                    case EXAMPLE_RFAL_POLLER_TYPE_NFCF:
+                        Serial0.print( " NFC-F device UID: "); 
+                        Serial0.println( hex2str(gDevList[i].dev.nfcf.sensfRes.NFCID2, RFAL_NFCF_NFCID2_LEN) );
+                        //platformLedOn( LED_NFCF_PORT, LED_NFCF_PIN  );
+                        platformLedOn(LED_TAG_READ_PORT, LED_TAG_READ_PIN); 
+                        break;
+                        
+                    case EXAMPLE_RFAL_POLLER_TYPE_NFCV:
+                        Serial0.print( " NFC-V device UID: "); 
+                        Serial0.println( hex2str(gDevList[i].dev.nfcv.InvRes.UID, RFAL_NFCV_UID_LEN) );
+                        //platformLedOn( LED_NFCV_PORT, LED_NFCV_PIN  );
+                        platformLedOn(LED_TAG_READ_PORT, LED_TAG_READ_PIN); 
+                        break;
+                }
+
+                /* Retrieve NFC device */
         rfalNfcGetActiveDevice(&nfcDevice);
         /* Perform NDEF Context Initialization */
         err = ndefPollerContextInitialization(&ndefCtx, nfcDevice); 
@@ -323,13 +444,28 @@ void loop(void)
         /* Restart discovery */
         rfalNfcDeactivate(RFAL_NFC_DEACTIVATE_IDLE);
 	
-        err = rfalNfcDiscover(&discParam);
-        check_discover_retval(err);
-    }   			
-    else
-    {
-        Serial0.println("...");
-    }
+            //err = rfalNfcDiscover(&discParam);
+            //check_discover_retval(err);
+
+            gState = EXAMPLE_RFAL_POLLER_STATE_ACTIVATION;                        /* Device(s) have been identified, go to Activation */
+            break;
+        
+            
+        /*******************************************************************************/
+        case RFAL_POLLER_STATE_ACTIVATION:
+        case RFAL_POLLER_STATE_DEACTIVATION:
+            rfalFieldOff();                                                       /* Turn the Field Off powering down any device nearby */
+            platformDelay(20);                                                     /* Remain a certain period with field off */
+            gState = EXAMPLE_RFAL_POLLER_STATE_INIT;                              /* Restart the loop */
+
+            break;
+        
+        
+        /*******************************************************************************/
+        default:
+            return;
+
+	}
 
     vTaskDelay(3000);
 }
