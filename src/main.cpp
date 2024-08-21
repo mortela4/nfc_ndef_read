@@ -71,7 +71,7 @@ extern "C" {
 #define EXAMPLE_RFAL_POLLER_FOUND_F      0x04  /* NFC-F device found Flag     */
 #define EXAMPLE_RFAL_POLLER_FOUND_V      0x08  /* NFC-V device Flag           */
 
-#define DEMO_RAW_MESSAGE_BUF_LEN 8192
+#define NDEF_MESSAGE_BUF_LEN             8192
 
 
 /************************************ LOCAL VARIABLES *****************************************/
@@ -101,7 +101,8 @@ static rfalNfcDiscoverParam discParam = {
 };
 
 static ndefContext ndefCtx;
-static uint8_t rawMessageBuf[DEMO_RAW_MESSAGE_BUF_LEN];
+
+static uint8_t rawMessageBuf[NDEF_MESSAGE_BUF_LEN];
 
 
 /************************************ LOCAL FUNCTION PROTOTYPES ************************************/
@@ -109,6 +110,7 @@ static uint8_t rawMessageBuf[DEMO_RAW_MESSAGE_BUF_LEN];
 static void ndefParseMessage(uint8_t *rawMsgBuf, uint32_t rawMsgLen);
 static void ndefParseRecord(ndefRecord *record);
 static void ndefPrintString(const uint8_t *str, uint32_t strLen);
+static void check_discover_retval(const ndefStatus err);
 
 
 /************************************ LOCAL FUNCTION IMPLEMENTATION ************************************/
@@ -205,10 +207,37 @@ static void ndefParseRecord(ndefRecord* record)
 }
 
 
+static void check_discover_retval(const ndefStatus err)
+{
+    if (RFAL_ERR_WRONG_STATE == err)
+    {
+        Serial0.println("Discover: WRONG STATE!");
+    }
+    else if (RFAL_ERR_PARAM == err)
+    {
+        Serial0.println("Discover: PARAMETER ERROR!");
+    }
+    else if (RFAL_ERR_DISABLED == err)
+    {
+        Serial0.println("Discover: FEATURE NOT ENABLED!");
+    }
+    else if (RFAL_ERR_NOTSUPP == err)
+    {
+        Serial0.println("Discover: FEATURE NOT SUPPORTED!");
+    }
+    else
+    {
+        Serial0.println("Discover: OK ...");
+    }
+}
+
+
 /**************************************************** main: SETUP and LOOP **************************************************/
 
 void setup(void) 
 {
+    ndefStatus err;
+    
     Serial0.begin(115200);
     Serial0.println("Init ...");
     
@@ -229,8 +258,10 @@ void setup(void)
 
     Serial0.println("NFC subsystem initialized OK ...");
 
-    rfalNfcDeactivate (RFAL_NFC_DEACTIVATE_IDLE);
-	rfalNfcDiscover(&discParam);
+    rfalNfcDeactivate(RFAL_NFC_DEACTIVATE_IDLE);
+	
+    err = rfalNfcDiscover(&discParam);
+    check_discover_retval(err);
 }
 
 
@@ -239,11 +270,18 @@ void loop(void)
 	ndefStatus err;
 	ReturnCode ret;
 	uint32_t rawMessageLen;
-	
+
+    static rfalNfcDevice *nfcDevice;
+
     rfalNfcWorker();
+
+    //vTaskDelay(500);
+    platformDelay(1000);
     
     if ( rfalNfcIsDevActivated(rfalNfcGetState()) ) 
     {
+        Serial0.println("NFC device (tag?) activated ...");
+
         /* Retrieve NFC device */
         rfalNfcGetActiveDevice(&nfcDevice);
         /* Perform NDEF Context Initialization */
@@ -282,8 +320,16 @@ void loop(void)
         /* Parse message content */
         ndefParseMessage(rawMessageBuf, rawMessageLen);
         
-        return;
-    }   			// if ( rfalNfcIsDevActivated(rfalNfcGetState()) ) 
+        /* Restart discovery */
+        rfalNfcDeactivate(RFAL_NFC_DEACTIVATE_IDLE);
+	
+        err = rfalNfcDiscover(&discParam);
+        check_discover_retval(err);
+    }   			
+    else
+    {
+        Serial0.println("...");
+    }
 
     vTaskDelay(3000);
 }
