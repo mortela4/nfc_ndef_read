@@ -4,7 +4,7 @@
  * @brief NDEF-record readout functionality. 
  */
 
-
+#if 0
 #include "rfal_platform/rfal_platform.h"
 
 
@@ -454,4 +454,7 @@ static bool ndefIsSTTag(ndefContext *ctx)
     return (ret);
 }
 #endif /* NDEF_FEATURE_FULL_API */
+
+
+#endif   // IF 0
 
