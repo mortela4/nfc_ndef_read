@@ -9,7 +9,8 @@
 #include "config.h"
 
 #include <Arduino.h>
-#include "rfal_core/st25r3911/st25r3911_interrupt.h"
+
+#include "st25r3911/st25r3911_interrupt.h"
 
 
 /*

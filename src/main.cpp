@@ -79,18 +79,25 @@ static rfalNfcDevice *nfcDevice;
 
 static rfalNfcDiscoverParam discParam = { 
 		.compMode = RFAL_COMPLIANCE_MODE_NFC,
-		.devLimit = 1U, 
-		.nfcfBR = RFAL_BR_212, 
-		.ap2pBR = RFAL_BR_424, 
-		.nfcid3 = NULL, 
-		.GB = NULL, 
-		.GBLen = 0, 
-		.notifyCb = NULL, 
-		.totalDuration = 1000U, 
-		.wakeupEnabled = false, 
-		.wakeupConfigDefault = true,
-		.techs2Find = (RFAL_NFC_POLL_TECH_A | RFAL_NFC_POLL_TECH_B | RFAL_NFC_POLL_TECH_F | RFAL_NFC_POLL_TECH_V), 
+        .techs2Find = (RFAL_NFC_POLL_TECH_A | RFAL_NFC_POLL_TECH_B | RFAL_NFC_POLL_TECH_F | RFAL_NFC_POLL_TECH_V), 
 		.techs2Bail = RFAL_NFC_TECH_NONE, 
+		.totalDuration = 1000U, 
+		.devLimit = 1U,                         // NOTE: only communicates w. ONE, single tag at the time!!
+         // maxBR --> Max bitrate NOT set ...
+		.nfcfBR = RFAL_BR_212, 
+        .nfcid3 = {0}, 
+		.GB = {0}, 
+        .GBLen = 0, 
+		.ap2pBR = RFAL_BR_424, 
+        // p2pNfcaPrio NOT set ...
+        // propNfc NOT set ...        
+        // isoDepFS NOT set ...  
+        // nfcDepLR NOT set ...       
+        // lmConfigPA NOT set ...
+        // lmConfigPF NOT set ...
+		.notifyCb = NULL, 
+		.wakeupEnabled = false, 
+		.wakeupConfigDefault = true,		
 };
 
 static ndefContext ndefCtx;
@@ -123,26 +130,30 @@ void ndefParseMessage(uint8_t* rawMsgBuf, uint32_t rawMsgLen)
 	record = ndefMessageGetFirstRecord(&message);
 	while (record != NULL) 
 	{
-		ndefExampleParseRecord(record); 
+		ndefParseRecord(record); 
 		record = ndefMessageGetNextRecord(record);
 	}
 }
 
 
-void ndefPrintString(const uint8_t* str,	uint32_t strLen) 
+void ndefPrintString(const uint8_t* str, const uint32_t strLen) 
 {
+    /*
 	uint32_t i;
 	const uint8_t* c;
-	i = strLen;
 	c = str;
+    */
+
+    String ndefInfo;
 	
-	while (i-- > 0U) 
+	for (int i = 0; i < strLen; i++) 
 	{
-		platformLog("%c", *c); 
-		c++;
+		ndefInfo += str[i];
 	}
-	
-	platformLog("\r\n");
+
+    ndefInfo += '\0';   // Just in case ...
+ 
+    Serial0.println(ndefInfo);  
 }
 
 
@@ -159,37 +170,37 @@ static void ndefParseRecord(ndefRecord* record)
 	
 	switch (type.id) 
 	{
-		case NDEF_TYPE_ID_EMPTY: platformLog(" * Empty record\r\n"); break; 
+		case NDEF_TYPE_ID_EMPTY: Serial0.println(" * Empty record ..."); break; 
 		
-		case NDEF_TYPE_ID_RTD_DEVICE_INFO: platformLog(" * Device info record\r\n"); break; 
+		case NDEF_TYPE_ID_RTD_DEVICE_INFO: Serial0.println(" * Device info record"); break; 
 		
-		case NDEF_TYPE_ID_RTD_TEXT: platformLog(" * TEXT record: ");
-								    ndefExamplePrintString(type.data.text.bufSentence.buffer, type.data.text.bufSentence.length); 
+		case NDEF_TYPE_ID_RTD_TEXT: Serial0.println(" * TEXT record: ");
+								    ndefPrintString(type.data.text.bufSentence.buffer, type.data.text.bufSentence.length); 
 								    break;
 								
-		case NDEF_TYPE_ID_RTD_URI: platformLog(" * URI record: ");
-								   ndefExamplePrintString(type.data.uri.bufUriString.buffer, type.data.uri.bufUriString.length); 
+		case NDEF_TYPE_ID_RTD_URI: Serial0.println(" * URI record: ");
+								   ndefPrintString(type.data.uri.bufUriString.buffer, type.data.uri.bufUriString.length); 
 								   break;
 								   
-		case NDEF_TYPE_ID_RTD_AAR: platformLog(" * AAR record: ");
-								   ndefExamplePrintString(type.data.aar.bufPayload.buffer, type.data.aar.bufPayload.length); 
+		case NDEF_TYPE_ID_RTD_AAR: Serial0.println(" * AAR record: ");
+								   ndefPrintString(type.data.aar.bufPayload.buffer, type.data.aar.bufPayload.length); 
 								   break;
 												
 		case NDEF_TYPE_ID_RTD_WLCCAP: /* Fall through */
 		case NDEF_TYPE_ID_RTD_WLCSTAI: /* Fall through */
 		case NDEF_TYPE_ID_RTD_WLCINFO: /* Fall through */
-		case NDEF_TYPE_ID_RTD_WLCCTL: platformLog(" * WLC record\r\n"); break; 
+		case NDEF_TYPE_ID_RTD_WLCCTL: Serial0.print(" * WLC record ..."); break; 
 		
 		case NDEF_TYPE_ID_BLUETOOTH_BREDR: /* Fall through */
 		case NDEF_TYPE_ID_BLUETOOTH_LE: /* Fall through */
 		case NDEF_TYPE_ID_BLUETOOTH_SECURE_BREDR: /* Fall through */
-		case NDEF_TYPE_ID_BLUETOOTH_SECURE_LE: platformLog(" * Bluetooth record\r\n"); break;
+		case NDEF_TYPE_ID_BLUETOOTH_SECURE_LE: Serial0.println(" * Bluetooth record ..."); break;
 		
-		case NDEF_TYPE_ID_MEDIA_VCARD: platformLog(" * vCard record\r\n"); break;
+		case NDEF_TYPE_ID_MEDIA_VCARD: Serial0.println(" * vCard record ..."); break;
 		
-		case NDEF_TYPE_ID_MEDIA_WIFI: platformLog("* WIFI record\r\n"); break; 
+		case NDEF_TYPE_ID_MEDIA_WIFI: Serial0.println("* WIFI record ..."); break; 
 		
-		default: platformLog(" * Other record\r\n"); break;														
+		default: Serial0.println(" * Other record (??) ..."); break;														
 	}
 }
 
@@ -239,7 +250,9 @@ void loop(void)
         err = ndefPollerContextInitialization(&ndefCtx, nfcDevice); 
         if( err != ERR_NONE ) 
         {
-            platformLog("NDEF NOT DETECTED (ndefPollerContextInitialization returns	%d)\r\n", err); 
+            Serial0.print("NDEF NOT DETECTED! ndefPollerContextInitialization() returned: ");
+            Serial0.println(err);
+
             return; 
         }
         
@@ -247,7 +260,8 @@ void loop(void)
         err = ndefPollerNdefDetect(&ndefCtx, NULL); 
         if(	err != ERR_NONE ) 
         {
-            platformLog("NDEF NOT DETECTED (ndefPollerNdefDetect returns %d)\r\n", err); 
+            Serial0.print("NDEF NOT DETECTED! ndefPollerNdefDetect() returned: "); 
+            Serial0.println(err);
             
             return;
         }
@@ -257,15 +271,16 @@ void loop(void)
         err = ndefPollerReadRawMessage(&ndefCtx, rawMessageBuf, sizeof(rawMessageBuf), &rawMessageLen, true); 
         if( err != ERR_NONE	) 
         {
-            platformLog("NDEF message cannot be read (ndefPollerReadRawMessage returns %d)\r\n", err); 
+            Serial0.print("NDEF message cannot be read! ndefPollerReadRawMessage() returned: "); 
+            Serial0.println(err);
             
             return;
         }
         
-        platformLog("NDEF Read successful\r\n");
+        Serial0.print("NDEF Read successful\r\n");
         
         /* Parse message content */
-        ndefExampleParseMessage(rawMessageBuf, rawMessageLen);
+        ndefParseMessage(rawMessageBuf, rawMessageLen);
         
         return;
     }   			// if ( rfalNfcIsDevActivated(rfalNfcGetState()) ) 

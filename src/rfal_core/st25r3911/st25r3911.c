@@ -39,7 +39,7 @@
 #include "st25r3911.h"
 #include "st25r3911_com.h"
 #include "st25r3911_interrupt.h"
-#include "../rfal_utils.h"
+#include "rfal_utils.h"
 
 
 /*

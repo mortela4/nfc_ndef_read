@@ -44,7 +44,7 @@
  ******************************************************************************
  */
 
-#include "../ndef_config.h"
+#include "ndef_config.h"
 #include "ndef_record.h"
 #include "ndef_buffer.h"
 
