@@ -15,11 +15,11 @@
 
 
 extern "C" {
-#include "rfal_core/rfal_utils.h"
-#include "rfal_core/rfal_nfc.h"             // Includes all of "rfal_nfc[a|b|f|v].h", "rfal_isoDep.h" and "rfal_nfcDep.h".
-#include "ndef/poller/ndef_poller.h"
-#include "ndef/message/ndef_message.h"
-#include "ndef/message/ndef_types.h"
+#include "utils.h"
+#include "rfal_nfc.h"             // Includes all of "rfal_nfc[a|b|f|v].h", "rfal_isoDep.h" and "rfal_nfcDep.h".
+#include "ndef_poller.h"
+#include "ndef_message.h"
+#include "ndef_types.h"
 
 //#include "ndef_dump.h"
 }
