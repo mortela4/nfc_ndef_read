@@ -139,7 +139,6 @@ typedef struct{
 
 
 /************************************ LOCAL VARIABLES *****************************************/
-static rfalNfcDevice *nfcDevice;
 
 static rfalNfcDiscoverParam discParam = { 
 		.compMode = RFAL_COMPLIANCE_MODE_NFC,
@@ -163,8 +162,6 @@ static rfalNfcDiscoverParam discParam = {
 		.wakeupEnabled = false, 
 		.wakeupConfigDefault = true,		
 };
-
-static ndefContext ndefCtx;
 
 static uint8_t rawMessageBuf[NDEF_MESSAGE_BUF_LEN];
 
@@ -439,12 +436,6 @@ static void check_discover_retval(const ndefStatus err)
 
 void setup(void) 
 {
-    ndefStatus err;
-    uint32_t rawMessageLen;
-    rfalNfcDevice *nfcDevice;
-    ndefContext ndefCtx;
-    bool notFound = true;
-
     Serial0.begin(115200);
     Serial0.println("Init ...");
     
@@ -464,35 +455,40 @@ void setup(void)
     }
 
     Serial0.println("NFC subsystem initialized OK ...");
-
-    rfalNfcDeactivate(RFAL_NFC_DEACTIVATE_IDLE);
-	
-    err = rfalNfcDiscover(&discParam);
-    check_discover_retval(err);
-
-    rfalNfcWorker(); 
-
-    platformDelay(50);
-
-
 }
 
 
+static rfalNfcDevice *nfcDevice;
+static ndefContext ndefCtx;
+
+/**
+ * TODO: NFC-tag detect does now NOT work - 
+ * NFC-state reported is continuously 'START_DISCOVERY'.
+ * If 'rfalNfcWorker()' is called AFTER 'rfalNfcDiscover()', 
+ * then state is reported as 'TECH_DETECT'.
+ * But, if this code is placed in 'setup()' instead, detection works!!
+ */
 void loop(void) 
 {
 	ndefStatus err;
 	ReturnCode ret;
-    bool found = false;
-	uint32_t rawMessageLen;
+    static bool found = false;
+    uint32_t rawMessageLen;
 
-    static rfalNfcDevice *nfcDevice;
+    rfalNfcWorker(); 
+    
+    rfalNfcDeactivate(RFAL_NFC_DEACTIVATE_IDLE);
+	
+    stError discStatus = rfalNfcDiscover(&discParam);
+    check_discover_retval(discStatus);
 
     /* Read loop */
-	while (false == found) 
+	if (false == found) 
 	{
-		rfalNfcWorker();
-		
-		if ( rfalNfcIsDevActivated(rfalNfcGetState()) ) 
+        rfalNfcState currentNfcState = rfalNfcGetState();
+        Serial0.println( state_description(currentNfcState) );
+
+		if ( rfalNfcIsDevActivated(currentNfcState) ) 
 		{
             Serial0.println("NFC tag detected! Checking NDEF ...");
 
@@ -529,10 +525,21 @@ void loop(void)
 			ndefParseMessage(rawMessageBuf, rawMessageLen);
 			found = true;
             Serial0.println("\r\nINFO: done with scan ...\r\n");
-
-			break;
 		}   			// if ( rfalNfcIsDevActivated(rfalNfcGetState()) ) 
-	}			// WHILE(1)
+        else
+        {
+            Serial0.println("...\r\n");
+        }
+	}			// IF(false == found)
+    else
+    {
+        Serial0.println("Please remove tag from reader!");
+        rfalFieldOff();
+        platformDelay(1000);
+        rfalFieldOnAndStartGT();
+        rfalNfcDeactivate(RFAL_NFC_DEACTIVATE_DISCOVERY);
+        Serial0.println("Re-started scan ...");
+    }
 
     vTaskDelay(3000);
 }
