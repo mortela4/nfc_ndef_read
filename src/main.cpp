@@ -16,6 +16,7 @@
 
 extern "C" {
 #include "utils.h"
+#include "rfal_utils.h"
 #include "rfal_nfc.h"             // Includes all of "rfal_nfc[a|b|f|v].h", "rfal_isoDep.h" and "rfal_nfcDep.h".
 #include "ndef_poller.h"
 #include "ndef_message.h"
@@ -237,7 +238,7 @@ struct rfalStateToDescription
 static const struct rfalStateToDescription stateToDesc[NUM_RFAL_NFC_STATES] = 
 {
     {
-        .state = RFAL_NFC_STATE_NOTINIT,
+        .state = RFAL_NFC_POLL_STATE_NOTINIT,
         .desc = "NOT_INITIALIZED",
     },
     {
@@ -245,7 +246,7 @@ static const struct rfalStateToDescription stateToDesc[NUM_RFAL_NFC_STATES] =
         .desc = "IDLE",
     },
     {
-        .state = RFAL_NFC_STATE_START_DISCOVERY,
+        .state = RFAL_NFC_POLL_STATE_START_DISCOVERY,
         .desc = "START_DISCOVERY",
     },
     {
@@ -431,8 +432,252 @@ static void check_discover_retval(const ndefStatus err)
     }
 }
 
+static bool verbose = true;
+
+static void ndefDumpSysInfo()
+{
+  ndefSystemInformation *sysInfo;
+
+#if 0
+  if (!verbose) {
+    return;
+  }
+
+  if (!ndef.subCtx.t5t.sysInfoSupported) {
+    return;
+  }
+
+  sysInfo = &ndef.subCtx.t5t.sysInfo;
+  Serial0.print("System Information\r\n");
+  Serial0.print(" * ");
+  Serial0.print(ndefT5TSysInfoMOIValue(sysInfo->infoFlags) + 1);
+  Serial0.print(" byte(s) memory addressing\r\n");
+  if (ndefT5TSysInfoDFSIDPresent(sysInfo->infoFlags)) {
+    Serial0.print(" * DFSID=");
+    Serial0.print(sysInfo->DFSID, HEX);
+    Serial0.print("h\r\n");
+  }
+  if (ndefT5TSysInfoAFIPresent(sysInfo->infoFlags)) {
+    Serial0.print(" * AFI=");
+    Serial0.print(sysInfo->AFI, HEX);
+    Serial0.print("h\r\n");
+  }
+  if (ndefT5TSysInfoMemSizePresent(sysInfo->infoFlags)) {
+    Serial0.print(" * ");
+    Serial0.print(sysInfo->numberOfBlock);
+    Serial0.print(" blocks, ");
+    Serial0.print(sysInfo->blockSize);
+    Serial0.print(" bytes per block\r\n");
+  }
+  if (ndefT5TSysInfoICRefPresent(sysInfo->infoFlags)) {
+    Serial0.print(" * ICRef=");
+    Serial0.print(sysInfo->ICRef, HEX);
+    Serial0.print("h\r\n");
+  }
+  if (ndefT5TSysInfoCmdListPresent(sysInfo->infoFlags)) {
+    Serial0.print(" * [");
+    Serial0.print(ndefT5TSysInfoReadSingleBlockSupported(sysInfo->supportedCmd) ? 'X' : ' ');
+    Serial0.print("] ReadSingleBlock                \r\n");
+    Serial0.print(" * [");
+    Serial0.print(ndefT5TSysInfoWriteSingleBlockSupported(sysInfo->supportedCmd) ? 'X' : ' ');
+    Serial0.print("] WriteSingleBlock               \r\n");
+    Serial0.print(" * [");
+    Serial0.print(ndefT5TSysInfoLockSingleBlockSupported(sysInfo->supportedCmd) ? 'X' : ' ');
+    Serial0.print("] LockSingleBlock                \r\n");
+    Serial0.print(" * [");
+    Serial0.print(ndefT5TSysInfoReadMultipleBlocksSupported(sysInfo->supportedCmd) ? 'X' : ' ');
+    Serial0.print("] ReadMultipleBlocks             \r\n");
+    Serial0.print(" * [");
+    Serial0.print(ndefT5TSysInfoWriteMultipleBlocksSupported(sysInfo->supportedCmd) ? 'X' : ' ');
+    Serial0.print("] WriteMultipleBlocks            \r\n");
+    Serial0.print(" * [");
+    Serial0.print(ndefT5TSysInfoSelectSupported(sysInfo->supportedCmd) ? 'X' : ' ');
+    Serial0.print("] Select                         \r\n");
+    Serial0.print(" * [");
+    Serial0.print(ndefT5TSysInfoResetToReadySupported(sysInfo->supportedCmd) ? 'X' : ' ');
+    Serial0.print("] ResetToReady                   \r\n");
+    Serial0.print(" * [");
+    Serial0.print(ndefT5TSysInfoGetMultipleBlockSecStatusSupported(sysInfo->supportedCmd) ? 'X' : ' ');
+    Serial0.print("] GetMultipleBlockSecStatus      \r\n");
+    Serial0.print(" * [");
+    Serial0.print(ndefT5TSysInfoWriteAFISupported(sysInfo->supportedCmd) ? 'X' : ' ');
+    Serial0.print("] WriteAFI                       \r\n");
+    Serial0.print(" * [");
+    Serial0.print(ndefT5TSysInfoLockAFISupported(sysInfo->supportedCmd) ? 'X' : ' ');
+    Serial0.print("] LockAFI                        \r\n");
+    Serial0.print(" * [");
+    Serial0.print(ndefT5TSysInfoWriteDSFIDSupported(sysInfo->supportedCmd) ? 'X' : ' ');
+    Serial0.print("] WriteDSFID                     \r\n");
+    Serial0.print(" * [");
+    Serial0.print(ndefT5TSysInfoLockDSFIDSupported(sysInfo->supportedCmd) ? 'X' : ' ');
+    Serial0.print("] LockDSFID                      \r\n");
+    Serial0.print(" * [");
+    Serial0.print(ndefT5TSysInfoGetSystemInformationSupported(sysInfo->supportedCmd) ? 'X' : ' ');
+    Serial0.print("] GetSystemInformation           \r\n");
+    Serial0.print(" * [");
+    Serial0.print(ndefT5TSysInfoCustomCmdsSupported(sysInfo->supportedCmd) ? 'X' : ' ');
+    Serial0.print("] CustomCmds                     \r\n");
+    Serial0.print(" * [");
+    Serial0.print(ndefT5TSysInfoFastReadMultipleBlocksSupported(sysInfo->supportedCmd) ? 'X' : ' ');
+    Serial0.print("] FastReadMultipleBlocks         \r\n");
+    Serial0.print(" * [");
+    Serial0.print(ndefT5TSysInfoExtReadSingleBlockSupported(sysInfo->supportedCmd) ? 'X' : ' ');
+    Serial0.print("] ExtReadSingleBlock             \r\n");
+    Serial0.print(" * [");
+    Serial0.print(ndefT5TSysInfoExtWriteSingleBlockSupported(sysInfo->supportedCmd) ? 'X' : ' ');
+    Serial0.print("] ExtWriteSingleBlock            \r\n");
+    Serial0.print(" * [");
+    Serial0.print(ndefT5TSysInfoExtLockSingleBlockSupported(sysInfo->supportedCmd) ? 'X' : ' ');
+    Serial0.print("] ExtLockSingleBlock             \r\n");
+    Serial0.print(" * [");
+    Serial0.print(ndefT5TSysInfoExtReadMultipleBlocksSupported(sysInfo->supportedCmd) ? 'X' : ' ');
+    Serial0.print("] ExtReadMultipleBlocks          \r\n");
+    Serial0.print(" * [");
+    Serial0.print(ndefT5TSysInfoExtWriteMultipleBlocksSupported(sysInfo->supportedCmd) ? 'X' : ' ');
+    Serial0.print("] ExtWriteMultipleBlocks         \r\n");
+    Serial0.print(" * [");
+    Serial0.print(ndefT5TSysInfoExtGetMultipleBlockSecStatusSupported(sysInfo->supportedCmd) ? 'X' : ' ');
+    Serial0.print("] ExtGetMultipleBlockSecStatus   \r\n");
+    Serial0.print(" * [");
+    Serial0.print(ndefT5TSysInfoFastExtendedReadMultipleBlocksSupported(sysInfo->supportedCmd) ? 'X' : ' ');
+    Serial0.print("] FastExtendedReadMultipleBlocks \r\n");
+  }
+#endif
+  return;
+}
+
+
+static const bool verbose = true;
+
+static void read_ndef_data(rfalNfcDevice *pNfcDevice)
+{
+    ReturnCode       err;
+    ndefMessage      message;
+    uint32_t         rawMessageLen;
+    ndefInfo         info;
+    ndefBuffer       bufRawMessage;
+    ndefConstBuffer  bufConstRawMessage;
+
+    ndefRecord       record1;
+    ndefRecord       record2;
+
+    ndefType         text;
+    ndefType         uri;
+    ndefType         aar;
+
+    ndefConstBuffer8 bufTextLangCode;
+    ndefConstBuffer bufTextLangText;
+    ndefConstBuffer bufUri;
+    ndefConstBuffer bufAndroidPackName;
+
+
+    /*
+    * Perform NDEF Context Initialization
+    */
+    err = ndefPollerContextInitialization(pNfcDevice);
+    if (err != ERR_NONE) {
+        Serial0.print("NDEF NOT DETECTED (ndefPollerContextInitialization returns ");
+        Serial0.print(err);
+        Serial0.print(")\r\n");
+
+        return;
+    }
+
+    if (verbose & (pNfcDevice->type == RFAL_NFC_LISTEN_TYPE_NFCV)) 
+    {
+        ndefDumpSysInfo();
+    }
+
+    /*
+    * Perform NDEF Detect procedure
+    */
+    err = ndefPollerNdefDetect(&info);
+    if (err != ERR_NONE) 
+    {
+        Serial0.print("NDEF NOT DETECTED (ndefPollerNdefDetect returns ");
+        Serial0.print(err);
+        Serial0.print(")\r\n");
+
+        return;
+    }
+    } 
+    else 
+    {
+        Serial0.print((char *)ndefStates[info.state]);
+        Serial0.print(" NDEF detected.\r\n");
+        //ndefCCDump();
+
+        if (verbose) 
+        {
+            Serial0.print("NDEF Len: ");
+            Serial0.print(ndef.messageLen);
+            Serial0.print(", Offset=");
+            Serial0.print(ndef.messageOffset);
+            Serial0.print("\r\n");
+        }
+    }
+
+    //    if (info.state == NDEF_STATE_INITIALIZED) {
+    //         /* Nothing to read... */
+    //         return;
+    //     }
+
+    err = ndef.ndefPollerReadRawMessage(rawMessageBuf, sizeof(rawMessageBuf), &rawMessageLen);
+    if (err != ERR_NONE) 
+    {
+        Serial0.print("NDEF message cannot be read (ndefPollerReadRawMessage returns ");
+        Serial0.print(err);
+        Serial0.print(")\r\n");
+
+        return;
+    }
+
+    if (verbose) 
+    {
+        bufRawMessage.buffer = rawMessageBuf;
+        bufRawMessage.length = rawMessageLen;
+        //ndefBufferDump(" NDEF Content", (ndefConstBuffer *)&bufRawMessage, verbose);
+
+    }
+
+    bufConstRawMessage.buffer = rawMessageBuf;
+    bufConstRawMessage.length = rawMessageLen;
+
+    ndefParseMessage(rawMessageBuf, rawMessageLen);
+
+    // err = ndefMessageDecode(&bufConstRawMessage, &message);
+    // if (err != ERR_NONE) 
+    // {
+    //     Serial0.print("NDEF message cannot be decoded (ndefMessageDecode  returns ");
+    //     Serial0.print(err);
+    //     Serial0.print(")\r\n");
+
+    //     return;
+    // }
+
+    //err = ndefMessageDump(&message, verbose);
+
+
+
+    // if (err != ERR_NONE) 
+    // {
+    //     Serial0.print("NDEF message cannot be displayed (ndefMessageDump returns ");
+    //     Serial0.print(err);
+    //     Serial0.print(")\r\n");
+
+    //     return;
+    // }
+}       
+
 
 /************************************************** Tasks ******************************************* */
+
+// TODO: use enum!
+#define NFC_POLL_STATE_NOTINIT               0  
+#define NFC_POLL_STATE_START_DISCOVERY       1  
+#define NFC_POLL_STATE_DISCOVERY             2  
+
+static int nfcCurrentState = NFC_POLL_STATE_NOTINIT;
 
 static rfalNfcDevice *nfcDevice;
 static ndefContext ndefCtx;
@@ -445,76 +690,194 @@ void poll_for_nfc_tags(void * parameter)
     static bool found = false;
     uint32_t rawMessageLen;
 
+    rfalNfcaSensRes       sensRes;
+    rfalNfcaSelRes        selRes;
+
+    rfalNfcbSensbRes      sensbRes;
+    uint8_t               sensbResLen;
+
+    uint8_t               devCnt = 0;
+    uint8_t               collisions = 0U;
+    rfalNfcfSensfRes     *sensfRes;
+
+    rfalNfcvInventoryRes  invRes;
+    uint16_t              rcvdLen;
+
     for(;;)
     { 
-        rfalNfcDeactivate(RFAL_NFC_DEACTIVATE_IDLE);
-        
-        stError discStatus = rfalNfcDiscover(&discParam);
-        check_discover_retval(discStatus);
-
-        platformDelay(50);
-        
         rfalNfcWorker(); 
 
-        /* Read loop */
-        if (false == found) 
-        {
-            rfalNfcState currentNfcState = rfalNfcGetState();
-            Serial0.println( state_description(currentNfcState) );
+        switch (nfcCurrentState) {
+            /*******************************************************************************/
+            case NFC_POLL_STATE_START_DISCOVERY:
+                rfalNfcDeactivate(false);
+                rfalNfcDiscover(&discParam);
 
-            if ( rfalNfcIsDevActivated(currentNfcState) ) 
-            {
-                Serial0.println("NFC tag detected! Checking NDEF ...");
+                nfcCurrentState = NFC_POLL_STATE_DISCOVERY;
+            break;
 
-                /* Retrieve NFC device */
-                err = rfalNfcGetActiveDevice(&nfcDevice);
-                /* Perform NDEF Context Initialization */
-                err = ndefPollerContextInitialization(&ndefCtx, nfcDevice); 
-                if( err != ERR_NONE ) 
+            /*******************************************************************************/
+            case NFC_POLL_STATE_DISCOVERY:
+                if (rfalNfcIsDevActivated(rfalNfcGetState())) 
                 {
-                    Serial0.print("NDEF-context NOT INITIALIZED! 'ndefPollerContextInitialization()' returned: ");
-                    Serial0.println(err);  
+                    rfalNfcGetActiveDevice(&nfcDevice);
+
+                    delay(50);
+
+                    switch (nfcDevice->type) {
+                    /*******************************************************************************/
+                    case RFAL_NFC_LISTEN_TYPE_NFCA:
+
+                        switch (nfcDevice->dev.nfca.type) 
+                        {
+                        case RFAL_NFCA_T1T:
+                            Serial0.print("ISO14443A/Topaz (NFC-A T1T) TAG found. UID: ");
+                            Serial0.print(hex2str(nfcDevice->nfcid, nfcDevice->nfcidLen));
+                            Serial0.print("\r\n");
+                            rfalNfcaPollerSleep();
+                            break;
+
+                        case RFAL_NFCA_T4T:
+                            Serial0.print("NFCA Passive ISO-DEP device found. UID: ");
+                            Serial0.print(hex2str(nfcDevice->nfcid, nfcDevice->nfcidLen));
+                            Serial0.print("\r\n");
+                            read_ndef_data(nfcDevice);
+                            rfalIsoDepDeselect();
+                            break;
+
+                        case RFAL_NFCA_T4T_NFCDEP:
+                        case RFAL_NFCA_NFCDEP:
+                            Serial0.print("NFCA Passive P2P device found. NFCID: ");
+                            Serial0.print(hex2str(nfcDevice->nfcid, nfcDevice->nfcidLen));
+                            Serial0.print("\r\n");
+                            //demoP2P();
+                            break;
+
+                        default:
+                            Serial0.print("ISO14443A/NFC-A card found. UID: ");
+                            Serial0.print(hex2str(nfcDevice->nfcid, nfcDevice->nfcidLen));
+                            Serial0.print("\r\n");
+                            read_ndef_data(nfcDevice);
+                            rfalNfcaPollerSleep();
+                            break;
+                        }
+                        /* Loop until tag is removed from the field */
+                        Serial0.print("Operation completed\r\nTag can be removed from the field\r\n");
+                        rfalNfcaPollerInitialize();
+                        while (rfalNfcaPollerCheckPresence(RFAL_14443A_SHORTFRAME_CMD_WUPA, &sensRes) == ERR_NONE) 
+                        {
+                            if (((nfcDevice->dev.nfca.type == RFAL_NFCA_T1T) && (!rfalNfcaIsSensResT1T(&sensRes))) ||
+                                ((nfcDevice->dev.nfca.type != RFAL_NFCA_T1T) && (rfalNfcaPollerSelect(nfcDevice->dev.nfca.nfcId1, nfcDevice->dev.nfca.nfcId1Len, &selRes) != ERR_NONE))) 
+                            {
+                                break;
+                            }
+                            rfalNfcaPollerSleep();
+                            delay(130);
+                        }
+                        break;
+
+                    /*******************************************************************************/
+                    case RFAL_NFC_LISTEN_TYPE_NFCB:
+                        // TODO: check - is this relevant??
+                        Serial0.print("ISO14443B/NFC-B card found. UID: ");
+                        Serial0.print(hex2str(nfcDevice->nfcid, nfcDevice->nfcidLen));
+                        Serial0.print("\r\n");
+
+                        if (rfalNfcbIsIsoDepSupported(&nfcDevice->dev.nfcb)) 
+                        {
+                            read_ndef_data(nfcDevice);
+                            rfalIsoDepDeselect();
+                        } 
+                        else 
+                        {
+                            rfalNfcbPollerSleep(nfcDevice->dev.nfcb.sensbRes.nfcid0);
+                        }
+                        /* Loop until tag is removed from the field */
+                        Serial0.print("Operation completed\r\nTag can be removed from the field\r\n");
+                        rfalNfcbPollerInitialize();
+                        while (rfalNfcbPollerCheckPresence(RFAL_NFCB_SENS_CMD_ALLB_REQ, RFAL_NFCB_SLOT_NUM_1, &sensbRes, &sensbResLen) == ERR_NONE) 
+                        {
+                            if (ST_BYTECMP(sensbRes.nfcid0, nfcDevice->dev.nfcb.sensbRes.nfcid0, RFAL_NFCB_NFCID0_LEN) != 0) 
+                            {
+                                break;
+                            }
+                            rfalNfcbPollerSleep(nfcDevice->dev.nfcb.sensbRes.nfcid0);
+                            delay(130);
+                        }
+                        break;
+
+                    /*******************************************************************************/
+                    case RFAL_NFC_LISTEN_TYPE_NFCF:
+
+                        if (rfalNfcfIsNfcDepSupported(&nfcDevice->dev.nfcf)) 
+                        {
+                            Serial0.print("NFCF Passive P2P device found. NFCID: ");
+                            Serial0.print(hex2str(nfcDevice->nfcid, nfcDevice->nfcidLen));
+                            Serial0.print("\r\n");
+                            // demoP2P();   // NOPE ...
+                        } 
+                        else 
+                        {
+                            Serial0.print("Felica/NFC-F card found. UID: ");
+                            Serial0.print(hex2str(nfcDevice->nfcid, nfcDevice->nfcidLen));
+                            Serial0.print("\r\n");
+                            read_ndef_data(nfcDevice);
+                        }
+
+                        /* Loop until tag is removed from the field */
+                        Serial0.print("Operation completed\r\nTag can be removed from the field\r\n");
+                        devCnt = 1;
+                        rfalNfcfPollerInitialize(RFAL_BR_212);
+                        while (rfalNfcfPollerPoll(RFAL_FELICA_1_SLOT, RFAL_NFCF_SYSTEMCODE, RFAL_FELICA_POLL_RC_NO_REQUEST, cardList, &devCnt, &collisions) == ERR_NONE) {
+                        /* Skip the length field byte */
+                        sensfRes = (rfalNfcfSensfRes *) & ((uint8_t *)cardList)[1];
+                        if (ST_BYTECMP(sensfRes->NFCID2, nfcDevice->dev.nfcf.sensfRes.NFCID2, RFAL_NFCF_NFCID2_LEN) != 0) {
+                            break;
+                        }
+                        delay(130);
+                        }
+                        break;
+
+                    /*******************************************************************************/
+                    case RFAL_NFC_LISTEN_TYPE_NFCV: 
+                        {
+                            uint8_t devUID[RFAL_NFCV_UID_LEN];
+
+                            ST_MEMCPY(devUID, nfcDevice->nfcid, nfcDevice->nfcidLen);     /* Copy the UID into local var */
+                            REVERSE_BYTES(devUID, RFAL_NFCV_UID_LEN);                   /* Reverse the UID for display purposes */
+                            Serial0.print("ISO15693/NFC-V card found. UID: ");
+                            Serial0.print(hex2str(devUID, RFAL_NFCV_UID_LEN));
+                            Serial0.print("\r\n");
+
+                            digitalWrite(LED_V_PIN, HIGH);
+
+                            read_ndef_data(nfcDevice);
+
+                            /* Loop until tag is removed from the field */
+                            Serial0.print("Operation completed\r\nTag can be removed from the field\r\n");
+                            rfalNfcvPollerInitialize();
+                            while (rfalNfcvPollerInventory(RFAL_NFCV_NUM_SLOTS_1, RFAL_NFCV_UID_LEN * 8U, nfcDevice->dev.nfcv.InvRes.UID, &invRes, &rcvdLen) == ERR_NONE) 
+                            {
+                                delay(130);
+                            }
+                        }
+                        break;
+
+                    /*******************************************************************************/
+                    default:
+                        break;
+                    }
+
+                    rfalNfcDeactivate(false);
+                    delay(500);
+                    nfcCurrentState = STATE_START_DISCOVERY;
                 }
-                
-                /* No NDEF context-init error(s). Perform NDEF Detect procedure: */
-                err = ndefPollerNdefDetect(&ndefCtx, NULL); 
-                if(	err != ERR_NONE ) 
-                {
-                    Serial0.print("NDEF NOT DETECTED! 'ndefPollerNdefDetect()' returned: ");
-                    Serial0.println(err); 
-                }
-                
-                /* No NDEF-detect error(s). Perform Single NDEF-read procedure 
-                * (Single=true: uses L-field from NDEF-Detect), else re-READ the L-field: */
-                err = ndefPollerReadRawMessage(&ndefCtx, rawMessageBuf, sizeof(rawMessageBuf), &rawMessageLen, true); 
-                if( err != ERR_NONE	) 
-                {
-                    Serial0.print("NDEF message cannot be read! 'ndefPollerReadRawMessage()' returned: ");
-                    Serial0.println(err);
-                }
-                
-                Serial0.println("NDEF Read successful");
-                
-                /* Parse message content */
-                ndefParseMessage(rawMessageBuf, rawMessageLen);
-                found = true;
-                Serial0.println("\r\nINFO: done with scan ...\r\n");
-            }   			// if ( rfalNfcIsDevActivated(rfalNfcGetState()) ) 
-            else
-            {
-                Serial0.println("...\r\n");
-            }
-        }			// IF(false == found)
-        else
-        {
-            Serial0.println("Please remove tag from reader!");
-            rfalFieldOff();
-            platformDelay(1000);
-            rfalFieldOnAndStartGT();
-            rfalNfcDeactivate(RFAL_NFC_DEACTIVATE_DISCOVERY);
-            Serial0.println("Re-started scan ...");
+            break;  // CASE NFC_POLL_STATE_DISCOVERY
+
+            /*******************************************************************************/
+            case NFC_POLL_STATE_NOTINIT:   // Fall-through ...
+            default: break;
         }
-
 
         // Pause the task for 3sec:
         vTaskDelay(3000 / portTICK_PERIOD_MS);
@@ -545,6 +908,8 @@ void setup(void)
     }
 
     Serial0.println("NFC subsystem initialized OK ...");
+
+    nfcCurrentState = NFC_POLL_STATE_START_DISCOVERY;
 
     xTaskCreate(
         poll_for_nfc_tags,    // Function that should be called
