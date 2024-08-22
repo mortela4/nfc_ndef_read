@@ -447,12 +447,14 @@ void poll_for_nfc_tags(void * parameter)
 
     for(;;)
     { 
-        rfalNfcWorker(); 
-        
         rfalNfcDeactivate(RFAL_NFC_DEACTIVATE_IDLE);
         
         stError discStatus = rfalNfcDiscover(&discParam);
         check_discover_retval(discStatus);
+
+        platformDelay(50);
+        
+        rfalNfcWorker(); 
 
         /* Read loop */
         if (false == found) 
