@@ -779,20 +779,11 @@ void ndefParseMessage(uint8_t* rawMsgBuf, uint32_t rawMsgLen)
 
 void ndefPrintString(const uint8_t* str, const uint32_t strLen) 
 {
-    /*
-	uint32_t i;
-	const uint8_t* c;
-	c = str;
-    */
-
-    String ndefInfo;
+    char ndefInfo[1024];
 	
-	for (int i = 0; i < strLen; i++) 
-	{
-		ndefInfo += str[i];
-	}
+    MEMCPY(ndefInfo, str, strLen);
 
-    ndefInfo += '\0';   // Just in case ...
+    ndefInfo[strLen] = '\0';   // Just in case ...
  
     Serial0.println(ndefInfo);  
 }
@@ -841,7 +832,7 @@ static void ndefParseRecord(ndefRecord* record)
 		
 		case NDEF_TYPE_ID_MEDIA_WIFI: Serial0.println("* WIFI record ..."); break; 
 		
-		default: Serial0.println(" * Other record (??) ..."); break;														
+		default: Serial0.println(" * Other record (?) ..."); break;														
 	}
 }
 
@@ -876,6 +867,10 @@ static void check_discover_retval(const ndefStatus err)
 void setup(void) 
 {
     ndefStatus err;
+    uint32_t rawMessageLen;
+    rfalNfcDevice *nfcDevice;
+    ndefContext ndefCtx;
+    bool notFound = true;
 
     Serial0.begin(115200);
     Serial0.println("Init ...");
@@ -901,6 +896,59 @@ void setup(void)
 	
     err = rfalNfcDiscover(&discParam);
     check_discover_retval(err);
+
+    rfalNfcWorker(); 
+
+    platformDelay(50);
+
+	/* Read loop */
+	while (1) 
+	{
+		rfalNfcWorker();
+		
+		if ( rfalNfcIsDevActivated(rfalNfcGetState()) ) 
+		{
+            Serial0.println("NFC tag detected! Checking NDEF ...");
+
+			/* Retrieve NFC device */
+			err = rfalNfcGetActiveDevice(&nfcDevice);
+			/* Perform NDEF Context Initialization */
+			err = ndefPollerContextInitialization(&ndefCtx, nfcDevice); 
+			if( err != ERR_NONE ) 
+			{
+				platformLog("NDEF NOT DETECTED (ndefPollerContextInitialization returns	%d)\r\n", err); 
+				return; 
+			}
+			
+			/* No NDEF context-init error(s). Perform NDEF Detect procedure: */
+			err = ndefPollerNdefDetect(&ndefCtx, NULL); 
+			if(	err != ERR_NONE ) 
+			{
+				platformLog("NDEF NOT DETECTED (ndefPollerNdefDetect returns %d)\r\n", err); 
+				
+				return;
+			}
+			
+			/* No NDEF-detect error(s). Perform Single NDEF-read procedure 
+			 * (Single=true: uses L-field from NDEF-Detect), else re-READ the L-field: */
+			err = ndefPollerReadRawMessage(&ndefCtx, rawMessageBuf, sizeof(rawMessageBuf), &rawMessageLen, true); 
+			if( err != ERR_NONE	) 
+			{
+				platformLog("NDEF message cannot be read (ndefPollerReadRawMessage returns %d)\r\n", err); 
+				
+				return;
+			}
+			
+			platformLog("NDEF Read successful\r\n");
+			
+			/* Parse message content */
+			ndefParseMessage(rawMessageBuf, rawMessageLen);
+			
+			return;
+		}   			// if ( rfalNfcIsDevActivated(rfalNfcGetState()) ) 
+	}			// WHILE(1)
+    
+    Serial0.println("\r\nINFO: done with scan ...\r\n");
 }
 
 
