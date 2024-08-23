@@ -166,6 +166,10 @@ static rfalNfcDiscoverParam discParam = {
 
 static uint8_t rawMessageBuf[NDEF_MESSAGE_BUF_LEN];
 
+static rfalNfcDevice *nfcDevice;        // NFC-device handle --> allocated and returned by API.
+static ndefContext ndefCtx;             // NDEF-context handle --> allocated here, to be populated by API.
+
+
 // static uint8_t                 gDevCnt;                                 /* Number of devices found                         */
 // static RfalPollerDevice         gDevList[RFAL_POLLER_DEVICES];                  /* Device List                                     */
 // static RfalPollerState          gState;                                  /* Main state                                      */
@@ -238,7 +242,7 @@ struct rfalStateToDescription
 static const struct rfalStateToDescription stateToDesc[NUM_RFAL_NFC_STATES] = 
 {
     {
-        .state = RFAL_NFC_POLL_STATE_NOTINIT,
+        .state = RFAL_NFC_STATE_NOTINIT,
         .desc = "NOT_INITIALIZED",
     },
     {
@@ -246,7 +250,7 @@ static const struct rfalStateToDescription stateToDesc[NUM_RFAL_NFC_STATES] =
         .desc = "IDLE",
     },
     {
-        .state = RFAL_NFC_POLL_STATE_START_DISCOVERY,
+        .state = RFAL_NFC_STATE_START_DISCOVERY,
         .desc = "START_DISCOVERY",
     },
     {
@@ -432,7 +436,6 @@ static void check_discover_retval(const ndefStatus err)
     }
 }
 
-static bool verbose = true;
 
 static void ndefDumpSysInfo()
 {
@@ -547,7 +550,17 @@ static void ndefDumpSysInfo()
 }
 
 
-static const bool verbose = true;
+static const bool verbose = false;
+
+/* State-to-descriptive-text: */
+static uint8_t *ndefStates[] = 
+{
+  (uint8_t *)"INVALID",
+  (uint8_t *)"INITIALIZED",
+  (uint8_t *)"READ/WRITE",
+  (uint8_t *)"READ-ONLY"
+};
+
 
 static void read_ndef_data(rfalNfcDevice *pNfcDevice)
 {
@@ -574,7 +587,7 @@ static void read_ndef_data(rfalNfcDevice *pNfcDevice)
     /*
     * Perform NDEF Context Initialization
     */
-    err = ndefPollerContextInitialization(pNfcDevice);
+    err = ndefPollerContextInitialization(&ndefCtx, pNfcDevice);
     if (err != ERR_NONE) {
         Serial0.print("NDEF NOT DETECTED (ndefPollerContextInitialization returns ");
         Serial0.print(err);
@@ -585,13 +598,13 @@ static void read_ndef_data(rfalNfcDevice *pNfcDevice)
 
     if (verbose & (pNfcDevice->type == RFAL_NFC_LISTEN_TYPE_NFCV)) 
     {
-        ndefDumpSysInfo();
+        // ndefDumpSysInfo(&ndefCtx);
     }
 
     /*
     * Perform NDEF Detect procedure
     */
-    err = ndefPollerNdefDetect(&info);
+    err = ndefPollerNdefDetect(&ndefCtx, &info);
     if (err != ERR_NONE) 
     {
         Serial0.print("NDEF NOT DETECTED (ndefPollerNdefDetect returns ");
@@ -600,29 +613,30 @@ static void read_ndef_data(rfalNfcDevice *pNfcDevice)
 
         return;
     }
-    } 
     else 
     {
         Serial0.print((char *)ndefStates[info.state]);
         Serial0.print(" NDEF detected.\r\n");
-        //ndefCCDump();
+        //ndefCCDump(&ndefCtx);
 
-        if (verbose) 
-        {
-            Serial0.print("NDEF Len: ");
-            Serial0.print(ndef.messageLen);
-            Serial0.print(", Offset=");
-            Serial0.print(ndef.messageOffset);
-            Serial0.print("\r\n");
-        }
+        // if (verbose) 
+        // {
+        //     Serial0.print("NDEF Len: ");
+        //     Serial0.print(&ndefCtx.messageLen);
+        //     Serial0.print(", Offset=");
+        //     Serial0.print(&ndefCtx.messageOffset);
+        //     Serial0.print("\r\n");
+        // }
     }
 
-    //    if (info.state == NDEF_STATE_INITIALIZED) {
-    //         /* Nothing to read... */
-    //         return;
-    //     }
+       if (info.state == NDEF_STATE_INITIALIZED) 
+       {
+            Serial0.println("NDEF-state = INITIALIZED --> nothing to READ ...");
+            /* Nothing to read... */
+            return;
+        }
 
-    err = ndef.ndefPollerReadRawMessage(rawMessageBuf, sizeof(rawMessageBuf), &rawMessageLen);
+    err = ndefPollerReadRawMessage(&ndefCtx, rawMessageBuf, sizeof(rawMessageBuf), &rawMessageLen, true);   // Last (BOOL-)-arg means 'read SINGLE NDEF-msg'.
     if (err != ERR_NONE) 
     {
         Serial0.print("NDEF message cannot be read (ndefPollerReadRawMessage returns ");
@@ -679,9 +693,6 @@ static void read_ndef_data(rfalNfcDevice *pNfcDevice)
 
 static int nfcCurrentState = NFC_POLL_STATE_NOTINIT;
 
-static rfalNfcDevice *nfcDevice;
-static ndefContext ndefCtx;
-
 	
 void poll_for_nfc_tags(void * parameter)
 {
@@ -692,6 +703,7 @@ void poll_for_nfc_tags(void * parameter)
 
     rfalNfcaSensRes       sensRes;
     rfalNfcaSelRes        selRes;
+    rfalFeliCaPollRes     cardList[1];
 
     rfalNfcbSensbRes      sensbRes;
     uint8_t               sensbResLen;
@@ -710,7 +722,7 @@ void poll_for_nfc_tags(void * parameter)
         switch (nfcCurrentState) {
             /*******************************************************************************/
             case NFC_POLL_STATE_START_DISCOVERY:
-                rfalNfcDeactivate(false);
+                rfalNfcDeactivate(RFAL_NFC_DEACTIVATE_IDLE);
                 rfalNfcDiscover(&discParam);
 
                 nfcCurrentState = NFC_POLL_STATE_DISCOVERY;
@@ -849,8 +861,6 @@ void poll_for_nfc_tags(void * parameter)
                             Serial0.print(hex2str(devUID, RFAL_NFCV_UID_LEN));
                             Serial0.print("\r\n");
 
-                            digitalWrite(LED_V_PIN, HIGH);
-
                             read_ndef_data(nfcDevice);
 
                             /* Loop until tag is removed from the field */
@@ -868,9 +878,9 @@ void poll_for_nfc_tags(void * parameter)
                         break;
                     }
 
-                    rfalNfcDeactivate(false);
+                    rfalNfcDeactivate(RFAL_NFC_DEACTIVATE_IDLE);
                     delay(500);
-                    nfcCurrentState = STATE_START_DISCOVERY;
+                    nfcCurrentState = NFC_POLL_STATE_START_DISCOVERY;
                 }
             break;  // CASE NFC_POLL_STATE_DISCOVERY
 
