@@ -719,7 +719,8 @@ void poll_for_nfc_tags(void * parameter)
     { 
         rfalNfcWorker(); 
 
-        switch (nfcCurrentState) {
+        switch (nfcCurrentState) 
+        {
             /*******************************************************************************/
             case NFC_POLL_STATE_START_DISCOVERY:
                 rfalNfcDeactivate(RFAL_NFC_DEACTIVATE_IDLE);
@@ -889,8 +890,8 @@ void poll_for_nfc_tags(void * parameter)
             default: break;
         }
 
-        // Pause the task for 3sec:
-        vTaskDelay(3000 / portTICK_PERIOD_MS);
+        // Pause the task for 100msec:
+        vTaskDelay(100 / portTICK_PERIOD_MS);   // NOTE: up to 500ms is OK - but if the total(=incl. 500ms delay above) goes beyond scan period(=1sec), scan may seem to fail(?).
     }
 }
 
